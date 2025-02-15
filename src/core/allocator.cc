@@ -23,82 +23,81 @@ namespace infini
         }
     }
 
-	size_t Allocator::alloc(size_t size) //size_t alloc(size_t size); in allocator.h
+    size_t Allocator::alloc(size_t size)
     {
-        size = getAlignedSize(size);
+        IT_ASSERT(this->ptr == nullptr);
+        // pad the size to the multiple of alignment
+        size = this->getAlignedSize(size);
 
-        // 1. Try to find a free block that fits
+        // =================================== 作业 ===================================
+        // TODO: 设计一个算法来分配内存，返回起始地址偏移量
+        // =================================== 作业 ===================================
+        // 检查是否有足够的空闲块
         for (auto it = free_blocks.begin(); it != free_blocks.end(); ++it) {
-			if (it->second >= size) { // it为循坏返回的迭代器，it->second为迭代器指向的值
+            if (it->second >= size) {
+                // 找到足够大的空闲块
                 size_t addr = it->first;
-                it->second -= size;
-                if (it->second == 0) {
-                    free_blocks.erase(it);
+                size_t remaining_size = it->second - size;
+
+                // 移除当前空闲块
+                free_blocks.erase(it);
+
+                // 如果有剩余空间，重新插入空闲块列表
+                if (remaining_size > 0) {
+                    free_blocks[addr + size] = remaining_size;
                 }
+
                 used += size;
+                if (used > peak) {
+                    peak = used;
+                }
                 return addr;
             }
         }
 
-        // 2. No suitable free block found, allocate from the end
+        // 如果没有找到合适的空闲块，从 used 指针分配
         size_t addr = used;
         used += size;
         if (used > peak) {
-            size_t newPeak = std::max(peak * 2, used); // Or a more sophisticated strategy
-			// Below is the actual memory allocation
-            //void* newPtr = runtime->alloc(newPeak);
-            //if (newPtr == nullptr) {
-            //    throw std::runtime_error("Memory allocation failed!");
-            //}
-            //if (ptr != nullptr) {
-            //    memcpy(newPtr, ptr, peak); // Copy old data
-            //    runtime->dealloc(ptr);
-            //}
-            //ptr = newPtr;
-            peak = newPeak;
-            //printf("Allocator really alloc: %p %lu bytes\n", this->ptr, peak);
+            peak = used;
         }
         return addr;
+
     }
-        // =================================== 作业 ===================================
-        // TODO: 设计一个算法来分配内存，返回起始地址偏移量
-        // =================================== 作业 ===================================
+    
 
     void Allocator::free(size_t addr, size_t size)
     {
+        IT_ASSERT(this->ptr == nullptr);
         size = getAlignedSize(size);
-        IT_ASSERT(ptr != nullptr);
-        IT_ASSERT(addr + size <= used);
 
-        used -= size;
-
-        // 1. Insert the free block into the free_blocks map
+        // =================================== 作业 ===================================
+        // TODO: 设计一个算法来回收内存
+        // =================================== 作业 ===================================
+		        // 将释放的内存块插入空闲块列表
         free_blocks[addr] = size;
 
-        // 2. Try to merge with adjacent free blocks
+        // 尝试合并相邻的空闲块
         auto it = free_blocks.find(addr);
-
-        // Check for merge with the block before
         if (it != free_blocks.begin()) {
             auto prev_it = std::prev(it);
             if (prev_it->first + prev_it->second == addr) {
+                // 合并前一个空闲块
                 prev_it->second += size;
                 free_blocks.erase(it);
-                it = prev_it; // Update iterator for next merge check
+                it = prev_it;
             }
         }
 
-        // Check for merge with the block after
         auto next_it = std::next(it);
-        if (next_it != free_blocks.end() && it->first + it->second == next_it->first) {
+        if (next_it != free_blocks.end() && addr + size == next_it->first) {
+            // 合并后一个空闲块
             it->second += next_it->second;
             free_blocks.erase(next_it);
         }
-    }
-    // =================================== 作业 ===================================
-    // TODO: 设计一个算法来回收内存
-    // =================================== 作业 ===================================
 
+        used -= size;
+    }
 
     void *Allocator::getPtr()
     {
