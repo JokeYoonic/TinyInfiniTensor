@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <numeric>
 #include <queue>
-
 namespace infini
 {
 
@@ -98,58 +97,64 @@ namespace infini
         return this->sorted = true;
     }
 
-    void GraphObj::optimize()
-    {        
-        // =================================== 作业 ===================================
-        // TODO: 设计一个算法来实现指定的图优化规则
-        // 图优化规则如下：
-        // 1. 去除冗余的算子（例如，两个相邻的算子都是 transpose 算子，且做的是相反的操作，可以将其全部删除）
-        // 2. 合并算子（例如，矩阵乘算子中含有属性transA、transB，如果其输入存在transpose，且对最后两个维度做交换，就可以将transpose融入到矩阵乘算子的属性中去）
-        // =================================== 作业 ===================================
-        
-        // 去除冗余的算子
-        for (auto it = ops.begin(); it != ops.end();)
-        {
-            auto &op = *it;
-            if (op->getOpType() == OpType::Transpose)
-            {
-                auto nextIt = std::next(it);
-                if (nextIt != ops.end() && (*nextIt)->getOpType() == OpType::Transpose)
-                {
-                    auto &nextOp = *nextIt;
-                    if (op->getInputs() == nextOp->getOutputs() && op->getOutputs() == nextOp->getInputs())
-                    {
-                        it = ops.erase(it);
-                        it = ops.erase(it);
-                        continue;
-                    }
+void GraphObj::optimize() {
+    // 去除冗余的 Transpose 算子
+    for (auto it = ops.begin(); it != ops.end();) {
+        auto &op = *it;
+        if (op->getOpType() == OpType::Transpose) {
+            auto nextIt = std::next(it);
+            if (nextIt != ops.end() && (*nextIt)->getOpType() == OpType::Transpose) {
+                auto &nextOp = *nextIt;
+                // 检查两个 Transpose 是否互为逆操作
+                if (op->getInputs() == nextOp->getOutputs() &&
+                    op->getOutputs() == nextOp->getInputs()) {
+                    // 删除两个 Transpose 算子
+                    it = ops.erase(it);
+                    it = ops.erase(it);
+                    continue;
                 }
             }
-            ++it;
         }
+        ++it;
+    }
 
-        // 合并算子
-        for (auto &op : ops)
-        {
-            if (op->getOpType() == OpType::MatMul)
-            {
-                auto inputs = op->getInputs();
-                for (auto &input : inputs)
-                {
-                    if (input->getSource() && input->getSource()->getOpType() == OpType::Transpose)
-                    {
-                        auto transposeOp = input->getSource();
-                        if (transposeOp->getOutputs().size() == 1 && transposeOp->getOutputs()[0] == input)
-                        {
-                            // 将 transpose 融入到 MatMul 的属性中
-                            op->setTransposeA(true);
-                            op->replaceInput(input, transposeOp->getInputs()[0]);
+    // 合并 Transpose 到 MatMul 的属性中
+    for (auto it = ops.begin(); it != ops.end(); ++it) {
+        auto &op = *it;
+        if (op->getOpType() == OpType::MatMul) {
+            auto matmul = as<MatmulObj>(op);
+            auto inputs = op->getInputs();
+            for (size_t i = 0; i < inputs.size(); ++i) {
+                auto &input = inputs[i];
+                if (input->getSource() && input->getSource()->getOpType() == OpType::Transpose) {
+                    auto transposeOp = as<TransposeObj>(input->getSource());
+                    // 检查 Transpose 是否只交换最后两个维度
+                    auto perm = transposeOp->getPerm();
+                    bool isLastTwoSwapped = true;
+                    for (size_t j = 0; j < perm.size() - 2; ++j) {
+                        if (perm[j] != j) {
+                            isLastTwoSwapped = false;
+                            break;
                         }
+                    }
+                    if (isLastTwoSwapped && perm[perm.size() - 2] == perm.size() - 1 &&
+                        perm[perm.size() - 1] == perm.size() - 2) {
+                        // 将 Transpose 融合到 MatMul 的属性中
+                        if (i == 0) {
+                            matmul->setTransA(!matmul->getTransA());
+                        } else if (i == 1) {
+                            matmul->setTransB(!matmul->getTransB());
+                        }
+                        // 替换 MatMul 的输入为 Transpose 的输入
+                        op->replaceInput(input, transposeOp->getInputs()[0]);
+                        // 删除 Transpose 算子
+                        ops.erase(std::find(ops.begin(), ops.end(), transposeOp));
                     }
                 }
             }
         }
     }
+}
 
     Tensor GraphObj::getTensor(int fuid) const
     {
